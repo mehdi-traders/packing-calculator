@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carton Packing Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+
+            #printArea,
+            #printArea * {
+                visibility: visible;
+            }
+
+            #printArea {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+
+            /* Hide print button in print preview */
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body class="p-6 bg-gray-100">
+    <div class="max-w-2xl mx-auto bg-white p-6 rounded shadow">
+        <h2 class="text-xl font-bold mb-4">Carton Packing Calculator</h2>
+        <label class="block font-semibold">Article Name:</label>
+        <input type="text" id="articleName" class="w-full border p-2 rounded mb-4">
+
+        <div id="sizesContainer">
+            <label class="block font-semibold">Sizes & Quantities:</label>
+            <div class="flex gap-2 mb-2">
+                <input type="text" placeholder="Size" class="border p-2 rounded w-1/2">
+                <input type="number" placeholder="Quantity" class="border p-2 rounded w-1/2 quantity-input"
+                    oninput="updateTotalQuantity()">
+                <button onclick="removeSize(this)" class="text-red-500">🗑</button>
+            </div>
+        </div>
+        <button onclick="addSize()" class="bg-blue-500 text-white px-4 py-2 rounded">Add Size</button>
+
+        <label class="block font-semibold mt-4">Total QTY:</label>
+        <input type="number" id="totalQty" class="w-full border p-2 rounded mb-4 bg-gray-100" readonly>
+
+        <label class="block font-semibold mt-4">Carton Capacity:</label>
+        <input type="number" id="cartonCapacity" class="w-full border p-2 rounded mb-4">
+
+        <button onclick="calculateCartons()" class="bg-green-500 text-white px-4 py-2 rounded">Calculate</button>
+
+        <!-- Print Area -->
+        <div id="printArea" class="mt-6 hidden">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-lg font-bold" id="articleTitle"></h3>
+                <a href="#" onclick="printResults()" class="no-print text-blue-500 flex items-center gap-1">
+                    🖨️ <span>Print</span>
+                </a>
+            </div>
+
+            <table class="w-full mt-4 border-collapse border border-gray-300" id="resultsTable">
+                <thead id="resultsHeader"></thead>
+                <tbody id="resultsBody"></tbody>
+                <tfoot>
+                    <tr class="bg-gray-200">
+                        <td class="border p-2 font-bold text-center" colspan="" id="footerColspan">Total Qty</td>
+                        <td class="border p-2 font-bold text-center" id="totalPieces"></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function addSize() {
+            const container = document.getElementById('sizesContainer');
+            const div = document.createElement('div');
+            div.className = 'flex gap-2 mb-2';
+            div.innerHTML = `
+                <input type="text" placeholder="Size" class="border p-2 rounded w-1/2">
+                <input type="number" placeholder="Quantity" class="border p-2 rounded w-1/2 quantity-input" oninput="updateTotalQuantity()">
+                <button onclick="removeSize(this)" class="text-red-500">🗑</button>
+            `;
+            container.appendChild(div);
+            updateTotalQuantity();
+        }
+
+        function updateTotalQuantity() {
+            const quantities = document.querySelectorAll('.quantity-input');
+            let total = 0;
+            quantities.forEach(input => {
+                const value = parseInt(input.value, 10);
+                if (!isNaN(value)) total += value;
+            });
+            document.getElementById('totalQty').value = total;
+        }
+
+        function removeSize(button) {
+            button.parentElement.remove();
+        }
+
+        function calculateCartons() {
+            const articleName = document.getElementById('articleName').value;
+            const cartonCapacity = parseInt(document.getElementById('cartonCapacity').value, 10);
+            const sizeInputs = document.querySelectorAll('#sizesContainer div');
+
+            let sizes = [];
+            let totalQty = 0;
+
+            // Collect sizes and quantities
+            sizeInputs.forEach(div => {
+                const size = div.children[0].value;
+                const qty = parseInt(div.children[1].value, 10);
+                if (size && qty) {
+                    sizes[size] = qty;
+                    totalQty += qty;
+                }
+            });
+
+            if (!articleName || !cartonCapacity || Object.keys(sizes).length === 0) {
+                alert('Please fill all fields correctly.');
+                return;
+            }
+
+            const totalCartons = Math.ceil(totalQty / cartonCapacity);
+            const cartons = Array.from({ length: totalCartons }, () => ({ items: {}, remainingCapacity: cartonCapacity }));
+            sizes = Object.fromEntries(
+                Object.entries(sizes).sort(([, valueA], [, valueB]) => valueA - valueB)
+            );
+            // Step 1: Distribute sizes based on their quantity limits
+            const hasNonZeroValues = obj => Object.values(obj).some(value => value > 0);
+
+            let c = 0;
+            const hasRemainingCapacity = cartons.some(carton => carton.remainingCapacity > 0);
+
+            while (hasNonZeroValues(sizes) && hasRemainingCapacity) {
+                for (const key in sizes) {
+                    if (sizes.hasOwnProperty(key) && sizes[key] > 0) {
+                        // Check remaining capacity of current carton
+                        if (cartons[c].remainingCapacity > 0) {
+                            cartons[c].items[key] = (cartons[c].items[key] || 0) + 1;
+                            cartons[c].remainingCapacity--;
+                            sizes[key]--;
+                        }
+                    }
+                }
+
+                // Move to next carton using modulus for cleaner logic
+                c = (c + 1) % totalCartons;
+
+                // Exit early if no cartons have capacity left
+                if (!cartons.some(carton => carton.remainingCapacity > 0)) {
+                    console.warn('No remaining capacity in cartons.');
+                    break;
+                }
+            }
+
+            // Step 2: Redistribute items from bottom to top for better carton utilization
+            // Helper function to check if all cartons except the last one are full
+            const isRedistributionComplete = (cartons) => {
+                return cartons.slice(0, -1).every(carton => carton.remainingCapacity === 0);
+            };
+
+            // Redistribution process
+            while (!isRedistributionComplete(cartons)) {
+                for (let i = totalCartons - 1; i > 0; i--) {
+                    const currentCarton = cartons[i];
+                    const aboveCarton = cartons[i - 1];
+
+                    // Continue if the current carton has items and the above carton has remaining capacity
+                    while (Object.keys(currentCarton.items).length > 0 && aboveCarton.remainingCapacity > 0) {
+
+                        // Find the key with the highest value; if tie, select the last one
+                        const entries = Object.entries(currentCarton.items);
+                        const maxValue = Math.max(...entries.map(([, value]) => value));
+
+                        // Get all keys with the max value and select the last key
+                        const candidates = entries.filter(([, value]) => value === maxValue);
+                        const [keyToMove] = candidates[candidates.length - 1];
+
+                        const availableItems = currentCarton.items[keyToMove];
+                        const spaceInAbove = aboveCarton.remainingCapacity;
+
+                        // Determine how many items to move
+                        const itemsToMove = Math.min(availableItems, spaceInAbove);
+
+                        // Move items and update capacities
+                        aboveCarton.items[keyToMove] = (aboveCarton.items[keyToMove] || 0) + itemsToMove;
+                        currentCarton.items[keyToMove] -= itemsToMove;
+
+                        aboveCarton.remainingCapacity -= itemsToMove;
+                        currentCarton.remainingCapacity += itemsToMove;
+
+                        // Remove item if quantity reaches zero
+                        if (currentCarton.items[keyToMove] <= 0) {
+                            delete currentCarton.items[keyToMove];
+                        }
+
+                        // Update the cartons array
+                        cartons[i] = { ...currentCarton };
+                        cartons[i - 1] = { ...aboveCarton };
+
+                        // Break if the above carton is now full
+                        if (aboveCarton.remainingCapacity === 0) break;
+                    }
+                }
+            }
+
+
+
+            displayResults(articleName, cartons);
+            // // Display results
+            // document.getElementById('articleTitle').innerText = `Article: ${articleName}`;
+            // const resultsBody = document.getElementById('resultsBody');
+            // resultsBody.innerHTML = '';
+            // document.getElementById('resultsTable').classList.remove('hidden');
+
+            // let totalPacked = 0;
+
+            // cartons.forEach((carton, index) => {
+            //     const packedTotal = Object.values(carton.items).reduce((sum, qty) => sum + qty, 0);
+            //     totalPacked += packedTotal;
+
+            //     const sizeDistribution = Object.entries(carton.items)
+            //         .map(([size, qty]) => `${size}: ${qty}`)
+            //         .join(', ');
+
+            //     const row = `<tr>
+            //         <td class="border p-2 text-center">${index + 1}</td>
+            //         <td class="border p-2 text-center">${sizeDistribution}</td>
+            //         <td class="border p-2 text-center">${packedTotal}</td>
+            //     </tr>`;
+            //     resultsBody.innerHTML += row;
+            // });
+
+            // document.getElementById('totalPieces').innerText = totalPacked;
+        }
+        function displayResults(articleName, cartons) {
+            const sizesSet = new Set();
+            cartons.forEach(carton => Object.keys(carton.items).forEach(size => sizesSet.add(size)));
+            const sizes = Array.from(sizesSet).sort();
+
+            const headerRow = `
+                <tr class="bg-gray-200">
+                    <th class="border p-2 text-center">Carton #</th>
+                    ${sizes.map(size => `<th class="border p-2 text-center">${size}</th>`).join('')}
+                    <th class="border p-2 text-center">Total Qty</th>
+                </tr>
+            `;
+
+            document.getElementById('articleTitle').innerText = `Article: ${articleName}`;
+            document.getElementById('resultsHeader').innerHTML = headerRow;
+
+            const resultsBody = document.getElementById('resultsBody');
+            resultsBody.innerHTML = '';
+
+            let totalPacked = 0;
+            cartons.forEach((carton, index) => {
+                const sizeColumns = sizes.map(size => `<td class="border p-2 text-center">${carton.items[size] || 0}</td>`).join('');
+                const packedTotal = Object.values(carton.items).reduce((sum, qty) => sum + qty, 0);
+                totalPacked += packedTotal;
+
+                resultsBody.innerHTML += `
+                    <tr>
+                        <td class="border p-2 text-center">${index + 1}</td>
+                        ${sizeColumns}
+                        <td class="border p-2 text-center font-semibold">${packedTotal}</td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('printArea').classList.remove('hidden');
+            document.getElementById('totalPieces').innerText = totalPacked;
+            document.getElementById('footerColspan').setAttribute('colspan', sizes.length + 1);
+        }
+        function printResults() {
+            window.print();
+        }
+
+        // Initial total quantity calculation on page load
+        updateTotalQuantity();
+    </script>
+</body>
+
+</html>
